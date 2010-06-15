@@ -595,6 +595,11 @@ process_common_toolchain() {
                 CROSS=${CROSS:-arm-none-symbianelf-}
             else
                 CROSS=${CROSS:-arm-none-linux-gnueabi-}
+                # this might not be the right way to do this, but I need some way to
+                # detect the case of native compilation for arm..
+                if [ `uname -m` = "armv7l" ]; then
+                    CROSS=""
+                fi
             fi
             link_with_cc=gcc
             setup_gnu_toolchain
