@@ -28,6 +28,9 @@ extern void vp8_decode_mb_row(VP8D_COMP *pbi,
 extern void vp8_build_uvmvs(MACROBLOCKD *x, int fullpixel);
 extern void vp8_decode_macroblock(VP8D_COMP *pbi, MACROBLOCKD *xd);
 
+static pthread_mutex_t mutex;
+static pthread_cond_t  cond;
+
 void vp8_setup_decoding_thread_data(VP8D_COMP *pbi, MACROBLOCKD *xd, MB_ROW_DEC *mbrd, int count)
 {
 
@@ -147,11 +150,13 @@ THREAD_FUNCTION vp8_thread_decoding_proc(void *p_data)
                 for (mb_col = 0; mb_col < pc->mb_cols; mb_col++)
                 {
 
+                    pthread_mutex_lock(&mutex);
                     while (mb_col > (*last_row_current_mb_col - 1) && *last_row_current_mb_col != pc->mb_cols - 1)
                     {
                         x86_pause_hint();
-                        thread_sleep(0);
+                        pthread_cond_wait(&cond, &mutex);
                     }
+                    pthread_mutex_unlock(&mutex);
 
                     // Take a copy of the mode and Mv information for this macroblock into the xd->mbmi
                     // the partition_bmi array is unused in the decoder, so don't copy it.
@@ -217,7 +222,10 @@ THREAD_FUNCTION vp8_thread_decoding_proc(void *p_data)
                     xd->above_context[UCONTEXT ] += 2;
                     xd->above_context[VCONTEXT ] += 2;
                     xd->above_context[Y2CONTEXT] ++;
+                    pthread_mutex_lock(&mutex);
                     pbi->mb_row_di[ithread].current_mb_col = mb_col;
+                    pthread_cond_broadcast(&cond);
+                    pthread_mutex_unlock(&mutex);
 
                 }
 
@@ -235,7 +243,10 @@ THREAD_FUNCTION vp8_thread_decoding_proc(void *p_data)
                 //memcpy(&pbi->lpfmb, &pbi->mb, sizeof(pbi->mb));
                 if ((mb_row & 1) == 1)
                 {
+                    pthread_mutex_lock(&mutex);
                     pbi->last_mb_row_decoded = mb_row;
+                    pthread_cond_broadcast(&cond);
+                    pthread_mutex_unlock(&mutex);
                     //printf("S%d", pbi->last_mb_row_decoded);
                 }
 
@@ -331,11 +342,13 @@ THREAD_FUNCTION vp8_thread_loop_filter(void *p_data)
                 for (mb_row = 0; mb_row < cm->mb_rows; mb_row++)
                 {
 
+                    pthread_mutex_lock(&mutex);
                     while (mb_row >= *last_mb_row_decoded)
                     {
                         x86_pause_hint();
-                        thread_sleep(0);
+                        pthread_cond_wait(&cond, &mutex);
                     }
+                    pthread_mutex_unlock(&mutex);
 
                     //printf("R%d", mb_row);
                     for (mb_col = 0; mb_col < cm->mb_cols; mb_col++)
@@ -403,6 +416,13 @@ void vp8_decoder_create_threads(VP8D_COMP *pbi)
     pbi->b_multithreaded_lf = 0;
     pbi->allocated_decoding_thread_count = 0;
     core_count = (pbi->max_threads > 16) ? 16 : pbi->max_threads; //vp8_get_proc_core_count();
+
+    if (core_count > 1)
+    {
+        pthread_cond_init(&cond, NULL);
+        pthread_mutex_init(&mutex, NULL);
+    }
+
     if (core_count > 1)
     {
         sem_init(&pbi->h_event_lpf, 0, 0);
@@ -518,7 +538,10 @@ void vp8_start_lfthread(VP8D_COMP *pbi)
 {
 #if CONFIG_MULTITHREAD
     memcpy(&pbi->lpfmb, &pbi->mb, sizeof(pbi->mb));
+    pthread_mutex_lock(&mutex);
     pbi->last_mb_row_decoded = 0;
+    pthread_cond_broadcast(&cond);
+    pthread_mutex_unlock(&mutex);
     sem_post(&pbi->h_event_start_lpf);
 #else
     (void) pbi;
@@ -557,7 +580,11 @@ void vp8_mtdecode_mb_rows(VP8D_COMP *pbi,
     for (mb_row = 0; mb_row < pc->mb_rows; mb_row += (pbi->decoding_thread_count + 1))
     {
         int i;
+
+//        pthread_mutex_lock(&mutex);
         pbi->current_mb_col_main = -1;
+//        pthread_cond_broadcast(&cond);
+//        pthread_mutex_unlock(&mutex);
 
         xd->current_bc = &pbi->mbc[ibc];
         ibc++ ;
@@ -577,11 +604,20 @@ void vp8_mtdecode_mb_rows(VP8D_COMP *pbi,
             if (ibc == num_part)
                 ibc = 0;
 
+//            pthread_mutex_lock(&mutex);
             pbi->mb_row_di[i].current_mb_col = -1;
+//            pthread_cond_broadcast(&cond);
+//            pthread_mutex_unlock(&mutex);
             sem_post(&pbi->h_event_mbrdecoding[i]);
         }
 
         vp8_decode_mb_row(pbi, pc, mb_row, xd);
+
+        /* XXX current_mb_col_main can be modified inside vp8_decode_mb_row..
+         * but mutex/cond are not exported to that file, so we signal here */
+        pthread_mutex_lock(&mutex);
+        pthread_cond_broadcast(&cond);
+        pthread_mutex_unlock(&mutex);
 
         xd->mode_info_context += xd->mode_info_stride * pbi->decoding_thread_count;
 
@@ -591,7 +627,10 @@ void vp8_mtdecode_mb_rows(VP8D_COMP *pbi,
         }
     }
 
+    pthread_mutex_lock(&mutex);
     pbi->last_mb_row_decoded = mb_row;
+    pthread_cond_broadcast(&cond);
+    pthread_mutex_unlock(&mutex);
 #else
     (void) pbi;
     (void) xd;
