@@ -182,13 +182,13 @@ int vp8dx_get_reference(VP8D_PTR ptr, VP8_REFFRAME ref_frame_flag, YV12_BUFFER_C
     VP8_COMMON *cm = &pbi->common;
 
     if (ref_frame_flag == VP8_LAST_FLAG)
-        vp8_yv12_copy_frame_ptr(&cm->last_frame, sd);
+        vp8_yv12_copy_frame_ptr(cm->last_frame, sd);
 
     else if (ref_frame_flag == VP8_GOLD_FLAG)
-        vp8_yv12_copy_frame_ptr(&cm->golden_frame, sd);
+        vp8_yv12_copy_frame_ptr(cm->golden_frame, sd);
 
     else if (ref_frame_flag == VP8_ALT_FLAG)
-        vp8_yv12_copy_frame_ptr(&cm->alt_ref_frame, sd);
+        vp8_yv12_copy_frame_ptr(cm->alt_ref_frame, sd);
 
     else
         return -1;
@@ -201,13 +201,13 @@ int vp8dx_set_reference(VP8D_PTR ptr, VP8_REFFRAME ref_frame_flag, YV12_BUFFER_C
     VP8_COMMON *cm = &pbi->common;
 
     if (ref_frame_flag == VP8_LAST_FLAG)
-        vp8_yv12_copy_frame_ptr(sd, &cm->last_frame);
+        vp8_yv12_copy_frame_ptr(sd, cm->last_frame);
 
     else if (ref_frame_flag == VP8_GOLD_FLAG)
-        vp8_yv12_copy_frame_ptr(sd, &cm->golden_frame);
+        vp8_yv12_copy_frame_ptr(sd, cm->golden_frame);
 
     else if (ref_frame_flag == VP8_ALT_FLAG)
-        vp8_yv12_copy_frame_ptr(sd, &cm->alt_ref_frame);
+        vp8_yv12_copy_frame_ptr(sd, cm->alt_ref_frame);
 
     else
         return -1;
@@ -275,15 +275,21 @@ int vp8dx_receive_compressed_data(VP8D_PTR ptr, unsigned long size, const unsign
     if (pbi->b_multithreaded_lf && pbi->common.filter_level != 0)
         vp8_stop_lfthread(pbi);
 
+    vp8_yv12_unref (cm->frame_to_show);
+
     if (cm->refresh_last_frame)
     {
-        vp8_swap_yv12_buffer(&cm->last_frame, &cm->new_frame);
+        YV12_BUFFER_CONFIG *temp;
 
-        cm->frame_to_show = &cm->last_frame;
+        temp = cm->last_frame;
+        cm->last_frame = cm->new_frame;
+        cm->new_frame = temp;
+
+        cm->frame_to_show = vp8_yv12_ref(cm->last_frame);
     }
     else
     {
-        cm->frame_to_show = &cm->new_frame;
+        cm->frame_to_show = vp8_yv12_ref(cm->new_frame);
     }
 
     if (!pbi->b_multithreaded_lf)
@@ -317,38 +323,58 @@ int vp8dx_receive_compressed_data(VP8D_PTR ptr, unsigned long size, const unsign
     // If any buffer copy / swaping is signalled it should be done here.
     if (cm->copy_buffer_to_arf)
     {
+        YV12_BUFFER_CONFIG *f = NULL;
         if (cm->copy_buffer_to_arf == 1)
         {
             if (cm->refresh_last_frame)
-                vp8_yv12_copy_frame_ptr(&cm->new_frame, &cm->alt_ref_frame);
+                f = cm->new_frame;
             else
-                vp8_yv12_copy_frame_ptr(&cm->last_frame, &cm->alt_ref_frame);
+                f = cm->last_frame;
         }
         else if (cm->copy_buffer_to_arf == 2)
-            vp8_yv12_copy_frame_ptr(&cm->golden_frame, &cm->alt_ref_frame);
+            f = cm->golden_frame;
+
+        if (f)
+        {
+            vp8_yv12_unref(cm->alt_ref_frame);
+            cm->alt_ref_frame = vp8_yv12_ref(f);
+        }
     }
 
     if (cm->copy_buffer_to_gf)
     {
+        YV12_BUFFER_CONFIG *f = NULL;
         if (cm->copy_buffer_to_gf == 1)
         {
             if (cm->refresh_last_frame)
-                vp8_yv12_copy_frame_ptr(&cm->new_frame, &cm->golden_frame);
+                f = cm->new_frame;
             else
-                vp8_yv12_copy_frame_ptr(&cm->last_frame, &cm->golden_frame);
+                f = cm->last_frame;
         }
         else if (cm->copy_buffer_to_gf == 2)
-            vp8_yv12_copy_frame_ptr(&cm->alt_ref_frame, &cm->golden_frame);
+            f = cm->alt_ref_frame;
+
+        if (f)
+        {
+            vp8_yv12_unref(cm->golden_frame);
+            cm->golden_frame = vp8_yv12_ref(f);
+        }
     }
 
     // Should the golden or alternate reference frame be refreshed?
     if (cm->refresh_golden_frame || cm->refresh_alt_ref_frame)
     {
         if (cm->refresh_golden_frame)
-            vp8_yv12_copy_frame_ptr(cm->frame_to_show, &cm->golden_frame);
+        {
+            vp8_yv12_unref(cm->golden_frame);
+            cm->golden_frame = vp8_yv12_ref(cm->frame_to_show);
+        }
 
         if (cm->refresh_alt_ref_frame)
-            vp8_yv12_copy_frame_ptr(cm->frame_to_show, &cm->alt_ref_frame);
+        {
+            vp8_yv12_unref(cm->alt_ref_frame);
+            cm->alt_ref_frame = vp8_yv12_ref(cm->frame_to_show);
+        }
 
         //vpx_log("Decoder: recovery frame received \n");
 
@@ -412,7 +438,7 @@ int vp8dx_receive_compressed_data(VP8D_PTR ptr, unsigned long size, const unsign
     pbi->common.error.setjmp = 0;
     return retcode;
 }
-int vp8dx_get_raw_frame(VP8D_PTR ptr, YV12_BUFFER_CONFIG *sd, INT64 *time_stamp, INT64 *time_end_stamp, int deblock_level,  int noise_level, int flags)
+int vp8dx_get_raw_frame(VP8D_PTR ptr, YV12_BUFFER_CONFIG **sdp, INT64 *time_stamp, INT64 *time_end_stamp, int deblock_level,  int noise_level, int flags)
 {
     int ret = -1;
     VP8D_COMP *pbi = (VP8D_COMP *) ptr;
@@ -428,25 +454,29 @@ int vp8dx_get_raw_frame(VP8D_PTR ptr, YV12_BUFFER_CONFIG *sd, INT64 *time_stamp,
     *time_stamp = pbi->last_time_stamp;
     *time_end_stamp = 0;
 
-    sd->clrtype = pbi->common.clr_type;
 #if CONFIG_POSTPROC
-    ret = vp8_post_proc_frame(&pbi->common, sd, deblock_level, noise_level, flags);
+    ret = vp8_post_proc_frame(&pbi->common, sdp, deblock_level, noise_level, flags);
 #else
-
     if (pbi->common.frame_to_show)
     {
-        *sd = *pbi->common.frame_to_show;
+        YV12_BUFFER_CONFIG *sd = vp8_yv12_ref(pbi->common.frame_to_show);
+
+        sd->clrtype = pbi->common.clr_type;
+
         sd->y_width = pbi->common.Width;
         sd->y_height = pbi->common.Height;
         sd->uv_height = pbi->common.Height / 2;
+
+        *sdp = sd;
+
         ret = 0;
     }
     else
     {
         ret = -1;
     }
-
 #endif //!CONFIG_POSTPROC
     vp8_clear_system_state();
     return ret;
 }
+

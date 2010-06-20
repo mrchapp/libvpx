@@ -410,7 +410,7 @@ static vpx_codec_err_t vp8_decode(vpx_codec_alg_priv_t  *ctx,
 
     if (!res && ctx->pbi)
     {
-        YV12_BUFFER_CONFIG sd;
+        YV12_BUFFER_CONFIG *sd;
         INT64 time_stamp = 0, time_end_stamp = 0;
         int ppflag       = 0;
         int ppdeblocking = 0;
@@ -432,17 +432,18 @@ static vpx_codec_err_t vp8_decode(vpx_codec_alg_priv_t  *ctx,
         if (!res && 0 == vp8dx_get_raw_frame(ctx->pbi, &sd, &time_stamp, &time_end_stamp, ppdeblocking, ppnoise, ppflag))
         {
             /* Align width/height */
-            unsigned int a_w = (sd.y_width + 15) & ~15;
-            unsigned int a_h = (sd.y_height + 15) & ~15;
+            unsigned int a_w = (sd->y_width + 15) & ~15;
+            unsigned int a_h = (sd->y_height + 15) & ~15;
 
             vpx_img_wrap(&ctx->img, VPX_IMG_FMT_I420,
                          a_w + 2 * VP8BORDERINPIXELS,
                          a_h + 2 * VP8BORDERINPIXELS,
                          1,
-                         sd.buffer_alloc);
+                         sd->buffer_alloc);
+            ctx->img.ybf = sd;
             vpx_img_set_rect(&ctx->img,
                              VP8BORDERINPIXELS, VP8BORDERINPIXELS,
-                             sd.y_width, sd.y_height);
+                             sd->y_width, sd->y_height);
             ctx->img_avail = 1;
 
         }

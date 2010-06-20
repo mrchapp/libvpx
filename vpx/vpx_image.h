@@ -138,6 +138,7 @@ extern "C" {
         unsigned char *img_data;       /**< private */
         int      img_data_owner; /**< private */
         int      self_allocd;    /**< private */
+        void    *ybf;            /**< private, reference to parent YV12_BUFFER_CONFIG */
     } vpx_image_t; /**< alias for struct vpx_image */
 
     /**\brief Representation of a rectangle on a surface */

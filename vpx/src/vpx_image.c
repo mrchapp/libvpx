@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "vpx/vpx_image.h"
+#include "vpx_scale/yv12config.h"
 
 static vpx_image_t *img_alloc_helper(vpx_image_t  *img,
                                      vpx_img_fmt_t fmt,
@@ -253,6 +254,9 @@ void vpx_img_free(vpx_image_t *img)
 {
     if (img)
     {
+        if (img->ybf)
+            vp8_yv12_unref(img->ybf);
+
         if (img->img_data && img->img_data_owner)
             free(img->img_data);
 

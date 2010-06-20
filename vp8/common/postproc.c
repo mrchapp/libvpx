@@ -457,7 +457,7 @@ void vp8_plane_add_noise_c(unsigned char *Start, char *noise,
 #define RTCD_VTABLE(oci) NULL
 #endif
 
-int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_level, int noise_level, int flags)
+int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *destp, int deblock_level, int noise_level, int flags)
 {
     char message[512];
     int q = oci->filter_level * 10 / 6;
@@ -470,12 +470,17 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
 
     if (!flags)
     {
-        *dest = *oci->frame_to_show;
+        YV12_BUFFER_CONFIG *dest = vp8_yv12_ref(oci->frame_to_show);
+
+        dest->clrtype = oci->clr_type;
 
         // handle problem with extending borders
         dest->y_width = oci->Width;
         dest->y_height = oci->Height;
         dest->uv_height = dest->y_height / 2;
+
+        *destp = dest;
+
         return 0;
 
     }
@@ -486,17 +491,17 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
 
     if (flags & VP8D_DEMACROBLOCK)
     {
-        vp8_deblock_and_de_macro_block(oci->frame_to_show, &oci->post_proc_buffer,
+        vp8_deblock_and_de_macro_block(oci->frame_to_show, oci->post_proc_buffer,
                                        q + (deblock_level - 5) * 10, 1, 0, RTCD_VTABLE(oci));
     }
     else if (flags & VP8D_DEBLOCK)
     {
-        vp8_deblock(oci->frame_to_show, &oci->post_proc_buffer,
+        vp8_deblock(oci->frame_to_show, oci->post_proc_buffer,
                     q, 1, 0, RTCD_VTABLE(oci));
     }
     else
     {
-        vp8_yv12_copy_frame_ptr(oci->frame_to_show, &oci->post_proc_buffer);
+        vp8_yv12_copy_frame_ptr(oci->frame_to_show, oci->post_proc_buffer);
     }
 
     if (flags & VP8D_ADDNOISE)
@@ -508,13 +513,13 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
         }
 
         POSTPROC_INVOKE(RTCD_VTABLE(oci), addnoise)
-        (oci->post_proc_buffer.y_buffer,
+        (oci->post_proc_buffer->y_buffer,
          oci->postproc_state.noise,
          oci->postproc_state.blackclamp,
          oci->postproc_state.whiteclamp,
          oci->postproc_state.bothclamp,
-         oci->post_proc_buffer.y_width, oci->post_proc_buffer.y_height,
-         oci->post_proc_buffer.y_stride);
+         oci->post_proc_buffer->y_width, oci->post_proc_buffer->y_height,
+         oci->post_proc_buffer->y_stride);
     }
 
     if (flags & VP8D_DEBUG_LEVEL1)
@@ -526,13 +531,13 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
                 oci->filter_level,
                 flags,
                 oci->mb_cols, oci->mb_rows);
-        vp8_blit_text(message, oci->post_proc_buffer.y_buffer, oci->post_proc_buffer.y_stride);
+        vp8_blit_text(message, oci->post_proc_buffer->y_buffer, oci->post_proc_buffer->y_stride);
     }
     else if (flags & VP8D_DEBUG_LEVEL2)
     {
         int i, j;
         unsigned char *y_ptr;
-        YV12_BUFFER_CONFIG *post = &oci->post_proc_buffer;
+        YV12_BUFFER_CONFIG *post = oci->post_proc_buffer;
         int mb_rows = post->y_height >> 4;
         int mb_cols = post->y_width  >> 4;
         int mb_index = 0;
@@ -563,7 +568,7 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
     {
         int i, j;
         unsigned char *y_ptr;
-        YV12_BUFFER_CONFIG *post = &oci->post_proc_buffer;
+        YV12_BUFFER_CONFIG *post = oci->post_proc_buffer;
         int mb_rows = post->y_height >> 4;
         int mb_cols = post->y_width  >> 4;
         int mb_index = 0;
@@ -596,11 +601,11 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
     else if (flags & VP8D_DEBUG_LEVEL4)
     {
         sprintf(message, "Bitrate: %10.2f frame_rate: %10.2f ", oci->bitrate, oci->framerate);
-        vp8_blit_text(message, oci->post_proc_buffer.y_buffer, oci->post_proc_buffer.y_stride);
+        vp8_blit_text(message, oci->post_proc_buffer->y_buffer, oci->post_proc_buffer->y_stride);
 #if 0
         int i, j;
         unsigned char *y_ptr;
-        YV12_BUFFER_CONFIG *post = &oci->post_proc_buffer;
+        YV12_BUFFER_CONFIG *post = oci->post_proc_buffer;
         int mb_rows = post->y_height >> 4;
         int mb_cols = post->y_width  >> 4;
         int mb_index = 0;
@@ -631,12 +636,18 @@ int vp8_post_proc_frame(VP8_COMMON *oci, YV12_BUFFER_CONFIG *dest, int deblock_l
     }
 
 
+    {
+        YV12_BUFFER_CONFIG *dest = vp8_yv12_ref(oci->post_proc_buffer);
 
-    *dest = oci->post_proc_buffer;
+        dest->clrtype = oci->clr_type;
 
-    // handle problem with extending borders
-    dest->y_width = oci->Width;
-    dest->y_height = oci->Height;
-    dest->uv_height = dest->y_height / 2;
+        // handle problem with extending borders
+        dest->y_width = oci->Width;
+        dest->y_height = oci->Height;
+        dest->uv_height = dest->y_height / 2;
+
+        *destp = dest;
+    }
+
     return 0;
 }

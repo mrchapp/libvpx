@@ -34,8 +34,8 @@ extern "C"
     {
         REG_YUV = 0,    // Regular yuv
         INT_YUV = 1     // The type of yuv that can be tranfer to and from RGB through integer transform
-              }
-              YUV_TYPE;
+    }
+    YUV_TYPE;
 
     typedef struct
     {
@@ -57,11 +57,16 @@ extern "C"
         int border;
         int frame_size;
         YUV_TYPE clrtype;
+
+        int refcnt;  /** <private, count of additional refs, ie 0 means only one ref */
     } YV12_BUFFER_CONFIG;
 
-    int vp8_yv12_alloc_frame_buffer(YV12_BUFFER_CONFIG *ybf, int width, int height, int border);
-    int vp8_yv12_de_alloc_frame_buffer(YV12_BUFFER_CONFIG *ybf);
+    int vp8_yv12_alloc_frame_buffer(YV12_BUFFER_CONFIG **ybf, int width, int height, int border);
+    int vp8_yv12_de_alloc_frame_buffer(YV12_BUFFER_CONFIG **ybf);
     int vp8_yv12_black_frame_buffer(YV12_BUFFER_CONFIG *ybf);
+    YV12_BUFFER_CONFIG * vp8_yv12_ref(YV12_BUFFER_CONFIG *ybf);
+    void vp8_yv12_unref(YV12_BUFFER_CONFIG *ybf);
+    YV12_BUFFER_CONFIG * vp8_yv12_make_writable(YV12_BUFFER_CONFIG *ybf);
 
 #ifdef __cplusplus
 }

@@ -94,13 +94,13 @@ typedef struct VP8Common
     YUV_TYPE clr_type;
     CLAMP_TYPE  clamp_type;
 
-    YV12_BUFFER_CONFIG last_frame;
-    YV12_BUFFER_CONFIG golden_frame;
-    YV12_BUFFER_CONFIG alt_ref_frame;
-    YV12_BUFFER_CONFIG new_frame;
+    YV12_BUFFER_CONFIG *last_frame;
+    YV12_BUFFER_CONFIG *golden_frame;
+    YV12_BUFFER_CONFIG *alt_ref_frame;
+    YV12_BUFFER_CONFIG *new_frame;
     YV12_BUFFER_CONFIG *frame_to_show;
-    YV12_BUFFER_CONFIG post_proc_buffer;
-    YV12_BUFFER_CONFIG temp_scale_frame;
+    YV12_BUFFER_CONFIG *post_proc_buffer;
+    YV12_BUFFER_CONFIG *temp_scale_frame;
 
     FRAME_TYPE last_frame_type;  //Add to check if vp8_frame_init_loop_filter() can be skiped.
     FRAME_TYPE frame_type;

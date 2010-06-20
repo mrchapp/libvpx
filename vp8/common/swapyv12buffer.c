@@ -11,6 +11,7 @@
 
 #include "swapyv12buffer.h"
 
+// XXX this can be removed and replaced w/ pointer swap..
 void vp8_swap_yv12_buffer(YV12_BUFFER_CONFIG *new_frame, YV12_BUFFER_CONFIG *last_frame)
 {
     unsigned char *temp;
